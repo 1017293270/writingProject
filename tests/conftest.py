@@ -108,6 +108,12 @@ class FakeRepository:
     def mark_task_exported(self, task_id: int, context_path: str) -> None:
         self.exported = {"task_id": task_id, "context_path": context_path}
 
+    def update_chapter_draft(self, chapter_id: int, draft_path: str, word_count: int) -> None:
+        self.chapter_update = {"chapter_id": chapter_id, "draft_path": draft_path, "word_count": word_count}
+
+    def mark_task_completed(self, task_id: int) -> None:
+        self.completed_task_id = task_id
+
 
 @pytest.fixture
 def fake_repository() -> FakeRepository:
