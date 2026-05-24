@@ -9,6 +9,7 @@ from writing_project.models import Chapter, Entity, PlotThread, Project, Task, T
 class ConnectionLike(Protocol):
     def cursor(self, *args: Any, **kwargs: Any) -> Any: ...
     def commit(self) -> None: ...
+    def rollback(self) -> None: ...
 
 
 def _text(value: Any) -> str:
@@ -198,6 +199,19 @@ class NovelRepository:
             )
         return [row_to_timeline_event(row) for row in rows]
 
+    def list_previous_chapter_summaries(
+        self, project_id: int, volume_no: int, chapter_no: int, limit: int = 3
+    ) -> list[str]:
+        rows = fetch_all(
+            self.connection,
+            "SELECT summary FROM ai_novel_chapter "
+            "WHERE project_id = %s AND summary IS NOT NULL AND summary <> '' "
+            "AND (volume_no < %s OR (volume_no = %s AND chapter_no < %s)) "
+            "ORDER BY volume_no DESC, chapter_no DESC LIMIT %s",
+            (project_id, volume_no, volume_no, chapter_no, limit),
+        )
+        return [str(row["summary"]) for row in reversed(rows)]
+
     def mark_task_exported(self, task_id: int, context_path: str) -> None:
         execute(
             self.connection,
@@ -219,6 +233,31 @@ class NovelRepository:
             (draft_path, word_count, chapter_id),
         )
 
+    def complete_task_output(self, task_id: int, chapter_id: int, draft_path: str, word_count: int) -> None:
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT final_path, status FROM ai_novel_chapter WHERE id = %s FOR UPDATE", (chapter_id,))
+            chapter = cursor.fetchone()
+            if chapter is None:
+                raise ValueError(f"Chapter {chapter_id} not found")
+            if _is_final_chapter(chapter.get("status"), chapter.get("final_path")):
+                raise ValueError(f"Chapter {chapter_id} already has final content; refusing to overwrite draft state")
+
+            cursor.execute(
+                "UPDATE ai_novel_chapter SET draft_path = %s, word_count = %s, status = 'drafted' WHERE id = %s",
+                (draft_path, word_count, chapter_id),
+            )
+            cursor.execute(
+                "UPDATE ai_novel_task SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (task_id,),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
     def create_review_issue(
         self,
         project_id: int,
@@ -237,3 +276,33 @@ class NovelRepository:
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'open')",
             (project_id, chapter_id, task_id, issue_type, severity, title, detail, suggestion),
         )
+
+    def create_review_issues(self, issues: list[dict[str, object]]) -> None:
+        cursor = self.connection.cursor()
+        try:
+            for issue in issues:
+                cursor.execute(
+                    "INSERT INTO ai_novel_review_issue "
+                    "(project_id, chapter_id, task_id, issue_type, severity, title, detail, suggestion, status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'open')",
+                    (
+                        issue["project_id"],
+                        issue["chapter_id"],
+                        issue["task_id"],
+                        issue["issue_type"],
+                        issue["severity"],
+                        issue["title"],
+                        issue["detail"],
+                        issue["suggestion"],
+                    ),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        finally:
+            cursor.close()
+
+
+def _is_final_chapter(status: object, final_path: object) -> bool:
+    return bool(final_path) or str(status).lower() in {"final", "finalized", "completed", "published"}

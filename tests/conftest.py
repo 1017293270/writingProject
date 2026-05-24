@@ -48,6 +48,7 @@ class FakeRepository:
         )
     )
     created_review_issues: list[dict] = field(default_factory=list)
+    previous_summaries: list[str] = field(default_factory=lambda: ["前一章摘要。"])
 
     def get_task(self, task_id: int) -> Task:
         assert task_id == self.task.id
@@ -105,6 +106,11 @@ class FakeRepository:
             )
         ]
 
+    def list_previous_chapter_summaries(
+        self, project_id: int, volume_no: int, chapter_no: int, limit: int = 3
+    ) -> list[str]:
+        return self.previous_summaries
+
     def mark_task_exported(self, task_id: int, context_path: str) -> None:
         self.exported = {"task_id": task_id, "context_path": context_path}
 
@@ -113,6 +119,10 @@ class FakeRepository:
 
     def mark_task_completed(self, task_id: int) -> None:
         self.completed_task_id = task_id
+
+    def complete_task_output(self, task_id: int, chapter_id: int, draft_path: str, word_count: int) -> None:
+        self.update_chapter_draft(chapter_id, draft_path, word_count)
+        self.mark_task_completed(task_id)
 
     def create_review_issue(
         self,
@@ -137,6 +147,9 @@ class FakeRepository:
                 "suggestion": suggestion,
             }
         )
+
+    def create_review_issues(self, issues: list[dict[str, object]]) -> None:
+        self.created_review_issues.extend(issues)
 
 
 @pytest.fixture

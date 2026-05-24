@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -36,13 +37,24 @@ def _close_repository(repo: NovelRepository) -> None:
         context.__exit__(None, None, None)
 
 
+def _run_command(action: Any) -> Any:
+    try:
+        return action()
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @app.command()
 def projects() -> None:
     """List novel projects."""
     repo = _repository()
     try:
-        for project in repo.list_projects():
-            typer.echo(f"{project.id}\t{project.status}\t{project.name}\t{project.root_dir}")
+        _run_command(
+            lambda: [
+                typer.echo(f"{project.id}\t{project.status}\t{project.name}\t{project.root_dir}")
+                for project in repo.list_projects()
+            ]
+        )
     finally:
         _close_repository(repo)
 
@@ -52,8 +64,12 @@ def tasks(project_id: int, status: str | None = typer.Option(None, help="Filter 
     """List tasks for a project."""
     repo = _repository()
     try:
-        for task in repo.list_tasks(project_id, status=status):
-            typer.echo(f"{task.id}\t{task.status}\t{task.priority}\t{task.task_type}\t{task.title}")
+        _run_command(
+            lambda: [
+                typer.echo(f"{task.id}\t{task.status}\t{task.priority}\t{task.task_type}\t{task.title}")
+                for task in repo.list_tasks(project_id, status=status)
+            ]
+        )
     finally:
         _close_repository(repo)
 
@@ -63,11 +79,11 @@ def export_task(task_id: int) -> None:
     """Generate task Markdown and context JSON for Codex."""
     repo = _repository()
     try:
-        instruction_path, context_path = export_task_files(repo, task_id)
-        typer.echo(f"task={instruction_path}")
-        typer.echo(f"context={context_path}")
+        instruction_path, context_path = _run_command(lambda: export_task_files(repo, task_id))
     finally:
         _close_repository(repo)
+    typer.echo(f"task={instruction_path}")
+    typer.echo(f"context={context_path}")
 
 
 @app.command("import-output")
@@ -75,11 +91,11 @@ def import_output(task_id: int) -> None:
     """Import a Codex output Markdown file and update MySQL state."""
     repo = _repository()
     try:
-        result = import_task_output(repo, task_id)
-        typer.echo(f"imported={result['output_path']}")
-        typer.echo(f"word_count={result['word_count']}")
+        result = _run_command(lambda: import_task_output(repo, task_id))
     finally:
         _close_repository(repo)
+    typer.echo(f"imported={result['output_path']}")
+    typer.echo(f"word_count={result['word_count']}")
 
 
 @app.command("import-review")
@@ -87,7 +103,7 @@ def import_review(task_id: int, review_path: Path) -> None:
     """Import structured review issues from a JSON report."""
     repo = _repository()
     try:
-        count = import_review_issues(repo, task_id, review_path)
-        typer.echo(f"issues_imported={count}")
+        count = _run_command(lambda: import_review_issues(repo, task_id, review_path))
     finally:
         _close_repository(repo)
+    typer.echo(f"issues_imported={count}")

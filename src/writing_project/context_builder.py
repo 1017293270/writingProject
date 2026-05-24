@@ -12,6 +12,7 @@ class ContextRepository(Protocol):
     def list_entities(self, project_id: int) -> list[Entity]: ...
     def list_plot_threads(self, project_id: int) -> list[PlotThread]: ...
     def list_timeline(self, project_id: int, through_chapter_id: int | None = None) -> list[TimelineEvent]: ...
+    def list_previous_chapter_summaries(self, project_id: int, volume_no: int, chapter_no: int, limit: int = 3) -> list[str]: ...
 
 
 def build_context(repository: ContextRepository, task_id: int) -> dict[str, Any]:
@@ -24,6 +25,7 @@ def build_context(repository: ContextRepository, task_id: int) -> dict[str, Any]
     entities = repository.list_entities(project.id)
     plot_threads = repository.list_plot_threads(project.id)
     timeline = repository.list_timeline(project.id, through_chapter_id=chapter.id)
+    previous_summaries = repository.list_previous_chapter_summaries(project.id, chapter.volume_no, chapter.chapter_no)
 
     return {
         "project": {
@@ -80,7 +82,7 @@ def build_context(repository: ContextRepository, task_id: int) -> dict[str, Any]
             }
             for event in timeline
         ],
-        "previous_summary": chapter.summary,
+        "previous_summary": "\n".join(previous_summaries),
         "constraints": [],
         "output": {
             "path": task.output_path,

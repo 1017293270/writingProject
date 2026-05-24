@@ -25,19 +25,46 @@ class ReviewRepository(Protocol):
 def import_review_issues(repository: ReviewRepository, task_id: int, review_path: str | Path) -> int:
     task = repository.get_task(task_id)
     payload = read_json(review_path)
+    if not isinstance(payload, dict):
+        raise ValueError("Review JSON root must be an object")
+
     issues = payload.get("issues", [])
     if not isinstance(issues, list):
         raise ValueError("Review JSON must contain an 'issues' array")
 
-    for issue in issues:
-        repository.create_review_issue(
-            project_id=task.project_id,
-            chapter_id=task.chapter_id,
-            task_id=task.id,
-            issue_type=str(issue["issue_type"]),
-            severity=int(issue.get("severity", 3)),
-            title=str(issue["title"]),
-            detail=str(issue.get("detail", "")),
-            suggestion=str(issue.get("suggestion", "")),
-        )
-    return len(issues)
+    prepared = [_prepare_issue(task, issue) for issue in issues]
+    if hasattr(repository, "create_review_issues"):
+        repository.create_review_issues(prepared)
+    else:
+        for issue in prepared:
+            repository.create_review_issue(
+                project_id=int(issue["project_id"]),
+                chapter_id=issue["chapter_id"],
+                task_id=int(issue["task_id"]),
+                issue_type=str(issue["issue_type"]),
+                severity=int(issue["severity"]),
+                title=str(issue["title"]),
+                detail=str(issue["detail"]),
+                suggestion=str(issue["suggestion"]),
+            )
+    return len(prepared)
+
+
+def _prepare_issue(task: Task, issue: object) -> dict[str, object]:
+    if not isinstance(issue, dict):
+        raise ValueError("Each review issue must be an object")
+    if "issue_type" not in issue:
+        raise ValueError("Review issue is missing 'issue_type'")
+    if "title" not in issue:
+        raise ValueError("Review issue is missing 'title'")
+
+    return {
+        "project_id": task.project_id,
+        "chapter_id": task.chapter_id,
+        "task_id": task.id,
+        "issue_type": str(issue["issue_type"]),
+        "severity": int(issue.get("severity", 3)),
+        "title": str(issue["title"]),
+        "detail": str(issue.get("detail", "")),
+        "suggestion": str(issue.get("suggestion", "")),
+    }
