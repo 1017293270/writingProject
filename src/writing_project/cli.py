@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import click
 import typer
+from mysql.connector import Error as MySQLError
 
 from writing_project.config import Settings
 from writing_project.db import connect
@@ -17,7 +19,12 @@ app = typer.Typer(help="Local writing console for Codex-assisted novels.")
 
 def _repository() -> NovelRepository:
     connection_context = connect(Settings.from_env())
-    connection = connection_context.__enter__()
+    try:
+        connection = connection_context.__enter__()
+    except MySQLError as exc:
+        raise click.ClickException(
+            f"MySQL connection failed: {exc}. Check database service, host, port, credentials, and database name."
+        ) from exc
     repo = NovelRepository(connection)
     setattr(repo, "_connection_context", connection_context)
     return repo
