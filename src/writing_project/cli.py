@@ -107,3 +107,11 @@ def import_review(task_id: int, review_path: Path) -> None:
     finally:
         _close_repository(repo)
     typer.echo(f"issues_imported={count}")
+
+
+@app.command()
+def web(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Start the local browser console."""
+    import uvicorn
+
+    uvicorn.run("writing_project.web:create_app", host=host, port=port, factory=True, reload=False)

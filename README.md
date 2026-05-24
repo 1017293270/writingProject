@@ -22,6 +22,22 @@ writing-project import-output 1
 writing-project import-review 1 E:/ai辅助平台/novels/demo-novel/reviews/review-0001.json
 ```
 
+## Web Console
+
+Start the local browser UI:
+
+```powershell
+writing-project web
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The Web console uses the same `.env` MySQL settings as the CLI. If the page shows a MySQL connection error, confirm the database service is running and `.env` contains the correct host, port, user, password, and database name.
+
 ## Manual Smoke Test
 
 After creating the database tables and seed rows:

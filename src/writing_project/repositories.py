@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from writing_project.db import execute, fetch_all
-from writing_project.models import Chapter, Entity, PlotThread, Project, Task, TimelineEvent
+from writing_project.models import Chapter, Entity, PlotThread, Project, ReviewIssue, Task, TimelineEvent
 
 
 class ConnectionLike(Protocol):
@@ -100,6 +100,21 @@ def row_to_task(row: dict[str, Any]) -> Task:
     )
 
 
+def row_to_review_issue(row: dict[str, Any]) -> ReviewIssue:
+    return ReviewIssue(
+        id=int(row["id"]),
+        project_id=int(row["project_id"]),
+        chapter_id=row.get("chapter_id"),
+        task_id=row.get("task_id"),
+        issue_type=str(row["issue_type"]),
+        severity=int(row["severity"]),
+        title=str(row["title"]),
+        detail=_text(row.get("detail")),
+        suggestion=_text(row.get("suggestion")),
+        status=str(row["status"]),
+    )
+
+
 class NovelRepository:
     def __init__(self, connection: ConnectionLike):
         self.connection = connection
@@ -162,6 +177,15 @@ class NovelRepository:
         if not rows:
             raise ValueError(f"Chapter {chapter_id} not found")
         return row_to_chapter(rows[0])
+
+    def list_chapters(self, project_id: int) -> list[Chapter]:
+        rows = fetch_all(
+            self.connection,
+            "SELECT id, project_id, volume_no, chapter_no, title, outline, summary, draft_path, final_path, "
+            "status, word_count FROM ai_novel_chapter WHERE project_id = %s ORDER BY volume_no, chapter_no",
+            (project_id,),
+        )
+        return [row_to_chapter(row) for row in rows]
 
     def list_entities(self, project_id: int) -> list[Entity]:
         rows = fetch_all(
@@ -309,6 +333,23 @@ class NovelRepository:
             raise
         finally:
             cursor.close()
+
+    def list_review_issues(self, project_id: int, status: str | None = None) -> list[ReviewIssue]:
+        if status:
+            rows = fetch_all(
+                self.connection,
+                "SELECT id, project_id, chapter_id, task_id, issue_type, severity, title, detail, suggestion, status "
+                "FROM ai_novel_review_issue WHERE project_id = %s AND status = %s ORDER BY severity, id",
+                (project_id, status),
+            )
+        else:
+            rows = fetch_all(
+                self.connection,
+                "SELECT id, project_id, chapter_id, task_id, issue_type, severity, title, detail, suggestion, status "
+                "FROM ai_novel_review_issue WHERE project_id = %s ORDER BY status, severity, id",
+                (project_id,),
+            )
+        return [row_to_review_issue(row) for row in rows]
 
 
 def _is_final_chapter(status: object, final_path: object) -> bool:

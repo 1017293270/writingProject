@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 
 import pytest
 
-from writing_project.models import Chapter, Entity, PlotThread, Project, Task, TimelineEvent
+from writing_project.models import Chapter, Entity, PlotThread, Project, ReviewIssue, Task, TimelineEvent
 
 
 @dataclass
@@ -58,9 +59,20 @@ class FakeRepository:
         assert project_id == self.project.id
         return self.project
 
+    def list_projects(self) -> list[Project]:
+        return [self.project]
+
     def get_chapter(self, chapter_id: int) -> Chapter:
         assert chapter_id == self.chapter.id
         return self.chapter
+
+    def list_chapters(self, project_id: int) -> list[Chapter]:
+        return [self.chapter]
+
+    def list_tasks(self, project_id: int, status: str | None = None) -> list[Task]:
+        if status and self.task.status != status:
+            return []
+        return [self.task]
 
     def list_entities(self, project_id: int) -> list[Entity]:
         return [
@@ -151,7 +163,32 @@ class FakeRepository:
     def create_review_issues(self, issues: list[dict[str, object]]) -> None:
         self.created_review_issues.extend(issues)
 
+    def list_review_issues(self, project_id: int, status: str | None = None) -> list[ReviewIssue]:
+        return [
+            ReviewIssue(
+                1,
+                project_id,
+                self.chapter.id,
+                self.task.id,
+                "continuity",
+                2,
+                "玉牌线索断裂",
+                "缺少呼应。",
+                "补一处反应。",
+                "open",
+            )
+        ]
+
 
 @pytest.fixture
 def fake_repository() -> FakeRepository:
     return FakeRepository()
+
+
+@pytest.fixture
+def fake_repository_context(fake_repository):
+    @contextmanager
+    def factory():
+        yield fake_repository
+
+    return factory

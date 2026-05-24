@@ -79,3 +79,17 @@ class Task:
     output_path: str | None
     status: str
     priority: int
+
+
+@dataclass(frozen=True)
+class ReviewIssue:
+    id: int
+    project_id: int
+    chapter_id: int | None
+    task_id: int | None
+    issue_type: str
+    severity: int
+    title: str
+    detail: str
+    suggestion: str
+    status: str
