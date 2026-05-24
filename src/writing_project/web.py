@@ -13,6 +13,13 @@ from mysql.connector import Error as MySQLError
 from writing_project.config import Settings
 from writing_project.db import connect
 from writing_project.importer import import_task_output
+from writing_project.project_actions import (
+    create_chapter,
+    create_project,
+    create_write_task,
+    import_markdown_directory,
+    import_markdown_file,
+)
 from writing_project.repositories import NovelRepository
 from writing_project.task_renderer import export_task_files
 
@@ -42,6 +49,28 @@ def create_app(repository_context: RepositoryContext | None = None) -> FastAPI:
             ),
         )
 
+    @app.get("/projects/new", response_class=HTMLResponse)
+    def new_project() -> HTMLResponse:
+        return HTMLResponse(
+            _page("New Project", _top_bar("New Project") + _project_form() + "</main>")
+        )
+
+    @app.post("/projects")
+    async def create_project_route(request: Request) -> RedirectResponse:
+        form = await _form_data(request)
+        try:
+            with request.app.state.repository_context() as repo:
+                project_id = create_project(
+                    repo,
+                    _required(form, "name"),
+                    form.get("genre", ""),
+                    form.get("premise", ""),
+                    _required(form, "root_dir"),
+                )
+                return _redirect_project(project_id, "Project created.")
+        except Exception as exc:
+            return _redirect_error_from_exception(exc)
+
     @app.get("/projects/{project_id}", response_class=HTMLResponse)
     def project_detail(
         request: Request, project_id: int, message: str | None = None, error: str | None = None
@@ -55,12 +84,81 @@ def create_app(repository_context: RepositoryContext | None = None) -> FastAPI:
                 project.name,
                 _top_bar(project.name)
                 + _messages(message, error)
+                + _project_actions(project.id)
                 + _section("Chapters", _chapter_table(chapters))
                 + _section("Tasks", _task_table(tasks))
-                + _section("Review Issues", _issue_table(issues)),
+                + _section("Review Issues", _issue_table(issues))
+                + "</main>",
             )
 
         return _with_repository(request, render)
+
+    @app.get("/projects/{project_id}/chapters/new", response_class=HTMLResponse)
+    def new_chapter(request: Request, project_id: int) -> HTMLResponse:
+        return _with_repository(
+            request,
+            lambda repo: _page(
+                "New Chapter",
+                _top_bar(f"New Chapter · {repo.get_project(project_id).name}")
+                + _chapter_form(project_id)
+                + "</main>",
+            ),
+        )
+
+    @app.post("/projects/{project_id}/chapters")
+    async def create_chapter_route(request: Request, project_id: int) -> RedirectResponse:
+        form = await _form_data(request)
+        try:
+            with request.app.state.repository_context() as repo:
+                create_chapter(
+                    repo,
+                    project_id,
+                    int(_required(form, "volume_no")),
+                    int(_required(form, "chapter_no")),
+                    _required(form, "title"),
+                    form.get("outline", ""),
+                )
+                return _redirect_project(project_id, "Chapter created.")
+        except Exception as exc:
+            return _redirect_project(project_id, error=str(exc))
+
+    @app.get("/projects/{project_id}/import", response_class=HTMLResponse)
+    def import_page(request: Request, project_id: int) -> HTMLResponse:
+        return _with_repository(
+            request,
+            lambda repo: _page(
+                "Import Markdown",
+                _top_bar(f"Import · {repo.get_project(project_id).name}")
+                + _import_form(project_id)
+                + "</main>",
+            ),
+        )
+
+    @app.post("/projects/{project_id}/import")
+    async def import_markdown_route(request: Request, project_id: int) -> RedirectResponse:
+        form = await _form_data(request)
+        try:
+            with request.app.state.repository_context() as repo:
+                mode = form.get("mode", "file")
+                if mode == "directory":
+                    imported = import_markdown_directory(
+                        repo,
+                        project_id,
+                        _required(form, "path"),
+                        int(_required(form, "volume_no")),
+                        int(_required(form, "start_chapter_no")),
+                    )
+                    return _redirect_project(project_id, f"Imported {len(imported)} chapters.")
+                import_markdown_file(
+                    repo,
+                    project_id,
+                    _required(form, "path"),
+                    int(_required(form, "volume_no")),
+                    int(_required(form, "start_chapter_no")),
+                )
+                return _redirect_project(project_id, "Markdown chapter imported.")
+        except Exception as exc:
+            return _redirect_project(project_id, error=str(exc))
 
     @app.get("/tasks/{task_id}", response_class=HTMLResponse)
     def task_detail(request: Request, task_id: int) -> HTMLResponse:
@@ -96,7 +194,31 @@ def create_app(repository_context: RepositoryContext | None = None) -> FastAPI:
         except Exception as exc:
             return _redirect_error_from_exception(exc)
 
+    @app.post("/chapters/{chapter_id}/create-task")
+    def create_task_for_chapter(request: Request, chapter_id: int) -> RedirectResponse:
+        try:
+            with request.app.state.repository_context() as repo:
+                chapter = repo.get_chapter(chapter_id)
+                task_id = create_write_task(repo, chapter_id)
+                return _redirect_project(chapter.project_id, f"Task {task_id} created.")
+        except Exception as exc:
+            return _redirect_error_from_exception(exc)
+
     return app
+
+
+async def _form_data(request: Request) -> dict[str, str]:
+    body = (await request.body()).decode("utf-8")
+    from urllib.parse import parse_qs
+
+    return {key: values[-1] for key, values in parse_qs(body, keep_blank_values=True).items()}
+
+
+def _required(form: dict[str, str], key: str) -> str:
+    value = form.get(key, "").strip()
+    if not value:
+        raise ValueError(f"{key} is required")
+    return value
 
 
 def _with_repository(request: Request, render: Callable[[Any], str]) -> HTMLResponse:
@@ -109,8 +231,13 @@ def _with_repository(request: Request, render: Callable[[Any], str]) -> HTMLResp
         return HTMLResponse(_page("Error", _top_bar() + _error_panel(str(exc))), status_code=500)
 
 
-def _redirect_project(project_id: int, message: str) -> RedirectResponse:
-    return RedirectResponse(f"/projects/{project_id}?message={_escape_url(message)}", status_code=303)
+def _redirect_project(project_id: int, message: str | None = None, error: str | None = None) -> RedirectResponse:
+    query = ""
+    if message:
+        query = f"?message={_escape_url(message)}"
+    if error:
+        query = f"?error={_escape_url(error)}"
+    return RedirectResponse(f"/projects/{project_id}{query}", status_code=303)
 
 
 def _redirect_error_from_exception(exc: Exception) -> RedirectResponse:
@@ -193,6 +320,17 @@ def _page(title: str, body: str) -> str:
       cursor: pointer;
       min-height: 34px;
     }}
+    input, textarea, select {{
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font: inherit;
+      background: white;
+      color: var(--text);
+    }}
+    textarea {{ resize: vertical; }}
+    label {{ color: var(--muted); font-weight: 650; }}
     .button.secondary, button.secondary {{ background: white; color: var(--accent-strong); }}
     .message, .error {{
       border-radius: 8px;
@@ -248,8 +386,9 @@ def _error_panel(message: str) -> str:
 
 
 def _project_table(projects: list[Any]) -> str:
+    create_link = '<div class="actions" style="margin-bottom:14px"><a class="button" href="/projects/new">New Project</a></div>'
     if not projects:
-        return _section("Projects", '<div class="empty">No projects found.</div>') + "</main>"
+        return create_link + _section("Projects", '<div class="empty">No projects found.</div>') + "</main>"
     rows = "".join(
         f"""<tr>
   <td><a href="/projects/{project.id}">{_h(project.name)}</a></td>
@@ -259,7 +398,7 @@ def _project_table(projects: list[Any]) -> str:
 </tr>"""
         for project in projects
     )
-    return _section(
+    return create_link + _section(
         "Projects",
         f"<table><thead><tr><th>Name</th><th>Status</th><th>Genre</th><th>Root</th></tr></thead><tbody>{rows}</tbody></table>",
     ) + "</main>"
@@ -275,10 +414,11 @@ def _chapter_table(chapters: list[Any]) -> str:
   <td><span class="status">{_h(chapter.status)}</span></td>
   <td>{chapter.word_count}</td>
   <td><code>{_h(chapter.draft_path or "")}</code></td>
+  <td><form method="post" action="/chapters/{chapter.id}/create-task"><button class="secondary" type="submit">Create Task</button></form></td>
 </tr>"""
         for chapter in chapters
     )
-    return f"<table><thead><tr><th>No.</th><th>Title</th><th>Status</th><th>Words</th><th>Draft</th></tr></thead><tbody>{rows}</tbody></table>"
+    return f"<table><thead><tr><th>No.</th><th>Title</th><th>Status</th><th>Words</th><th>Draft</th><th>Action</th></tr></thead><tbody>{rows}</tbody></table>"
 
 
 def _task_table(tasks: list[Any]) -> str:
@@ -340,3 +480,53 @@ def _task_detail(project: Any, task: Any, chapter: Any | None) -> str:
 
 def _h(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
+
+
+def _project_actions(project_id: int) -> str:
+    return f"""<section class="section actions">
+  <a class="button" href="/projects/{project_id}/chapters/new">Add Chapter</a>
+  <a class="button secondary" href="/projects/{project_id}/import">Import Markdown</a>
+</section>"""
+
+
+def _project_form() -> str:
+    return """<section class="section">
+  <h2>Create Novel Project</h2>
+  <form class="panel detail-grid" method="post" action="/projects">
+    <label>Name</label><input name="name" required>
+    <label>Genre</label><input name="genre">
+    <label>Premise</label><textarea name="premise" rows="4"></textarea>
+    <label>Root Directory</label><input name="root_dir" required placeholder="E:/ai辅助平台/novels/my-novel">
+    <div></div><button type="submit">Create Project</button>
+  </form>
+</section>"""
+
+
+def _chapter_form(project_id: int) -> str:
+    return f"""<section class="section">
+  <h2>Add Chapter</h2>
+  <form class="panel detail-grid" method="post" action="/projects/{project_id}/chapters">
+    <label>Volume No.</label><input name="volume_no" type="number" value="1" min="1" required>
+    <label>Chapter No.</label><input name="chapter_no" type="number" min="1" required>
+    <label>Title</label><input name="title" required>
+    <label>Outline</label><textarea name="outline" rows="5"></textarea>
+    <div></div><button type="submit">Create Chapter</button>
+  </form>
+</section>"""
+
+
+def _import_form(project_id: int) -> str:
+    return f"""<section class="section">
+  <h2>Import Existing Markdown</h2>
+  <form class="panel detail-grid" method="post" action="/projects/{project_id}/import">
+    <label>Mode</label>
+    <select name="mode">
+      <option value="file">Single Markdown file</option>
+      <option value="directory">Directory of Markdown files</option>
+    </select>
+    <label>Path</label><input name="path" required placeholder="E:/ai辅助平台/novels/my-novel/chapters">
+    <label>Volume No.</label><input name="volume_no" type="number" value="1" min="1" required>
+    <label>Start Chapter No.</label><input name="start_chapter_no" type="number" value="1" min="1" required>
+    <div></div><button type="submit">Import</button>
+  </form>
+</section>"""

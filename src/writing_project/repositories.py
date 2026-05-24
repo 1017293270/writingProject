@@ -351,6 +351,93 @@ class NovelRepository:
             )
         return [row_to_review_issue(row) for row in rows]
 
+    def create_project(
+        self, name: str, genre: str, premise: str, style_guide_path: str, root_dir: str, status: str = "active"
+    ) -> int:
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO ai_novel_project (name, genre, premise, style_guide_path, root_dir, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (name, genre, premise, style_guide_path, root_dir, status),
+            )
+            self.connection.commit()
+            return int(cursor.lastrowid)
+        finally:
+            cursor.close()
+
+    def create_chapter(
+        self,
+        project_id: int,
+        volume_no: int,
+        chapter_no: int,
+        title: str,
+        outline: str,
+        summary: str = "",
+        draft_path: str | None = None,
+        final_path: str | None = None,
+        status: str = "planned",
+        word_count: int = 0,
+    ) -> int:
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO ai_novel_chapter "
+                "(project_id, volume_no, chapter_no, title, outline, summary, draft_path, final_path, status, word_count) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    project_id,
+                    volume_no,
+                    chapter_no,
+                    title,
+                    outline,
+                    summary,
+                    draft_path,
+                    final_path,
+                    status,
+                    word_count,
+                ),
+            )
+            self.connection.commit()
+            return int(cursor.lastrowid)
+        finally:
+            cursor.close()
+
+    def create_task(
+        self,
+        project_id: int,
+        chapter_id: int,
+        task_type: str,
+        title: str,
+        instruction_path: str,
+        context_path: str,
+        output_path: str,
+        status: str = "pending",
+        priority: int = 1,
+    ) -> int:
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "INSERT INTO ai_novel_task "
+                "(project_id, chapter_id, task_type, title, instruction_path, context_path, output_path, status, priority) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    project_id,
+                    chapter_id,
+                    task_type,
+                    title,
+                    instruction_path,
+                    context_path,
+                    output_path,
+                    status,
+                    priority,
+                ),
+            )
+            self.connection.commit()
+            return int(cursor.lastrowid)
+        finally:
+            cursor.close()
+
 
 def _is_final_chapter(status: object, final_path: object) -> bool:
     return bool(final_path) or str(status).lower() in {"final", "finalized", "completed", "published"}

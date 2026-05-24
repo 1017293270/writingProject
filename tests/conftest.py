@@ -49,6 +49,9 @@ class FakeRepository:
         )
     )
     created_review_issues: list[dict] = field(default_factory=list)
+    created_projects: list[dict] = field(default_factory=list)
+    created_chapters: list[dict] = field(default_factory=list)
+    created_tasks: list[dict] = field(default_factory=list)
     previous_summaries: list[str] = field(default_factory=lambda: ["前一章摘要。"])
 
     def get_task(self, task_id: int) -> Task:
@@ -178,6 +181,77 @@ class FakeRepository:
                 "open",
             )
         ]
+
+    def create_project(
+        self, name: str, genre: str, premise: str, style_guide_path: str, root_dir: str, status: str = "active"
+    ) -> int:
+        self.created_projects.append(
+            {
+                "name": name,
+                "genre": genre,
+                "premise": premise,
+                "style_guide_path": style_guide_path,
+                "root_dir": root_dir,
+                "status": status,
+            }
+        )
+        return 100 + len(self.created_projects)
+
+    def create_chapter(
+        self,
+        project_id: int,
+        volume_no: int,
+        chapter_no: int,
+        title: str,
+        outline: str,
+        summary: str = "",
+        draft_path: str | None = None,
+        final_path: str | None = None,
+        status: str = "planned",
+        word_count: int = 0,
+    ) -> int:
+        self.created_chapters.append(
+            {
+                "project_id": project_id,
+                "volume_no": volume_no,
+                "chapter_no": chapter_no,
+                "title": title,
+                "outline": outline,
+                "summary": summary,
+                "draft_path": draft_path,
+                "final_path": final_path,
+                "status": status,
+                "word_count": word_count,
+            }
+        )
+        return 201 + len(self.created_chapters)
+
+    def create_task(
+        self,
+        project_id: int,
+        chapter_id: int,
+        task_type: str,
+        title: str,
+        instruction_path: str,
+        context_path: str,
+        output_path: str,
+        status: str = "pending",
+        priority: int = 1,
+    ) -> int:
+        self.created_tasks.append(
+            {
+                "project_id": project_id,
+                "chapter_id": chapter_id,
+                "task_type": task_type,
+                "title": title,
+                "instruction_path": instruction_path,
+                "context_path": context_path,
+                "output_path": output_path,
+                "status": status,
+                "priority": priority,
+            }
+        )
+        return 302 + len(self.created_tasks)
 
 
 @pytest.fixture
