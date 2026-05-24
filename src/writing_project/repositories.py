@@ -236,6 +236,13 @@ class NovelRepository:
     def complete_task_output(self, task_id: int, chapter_id: int, draft_path: str, word_count: int) -> None:
         cursor = self.connection.cursor(dictionary=True)
         try:
+            cursor.execute("SELECT chapter_id FROM ai_novel_task WHERE id = %s FOR UPDATE", (task_id,))
+            task = cursor.fetchone()
+            if task is None:
+                raise ValueError(f"Task {task_id} not found")
+            if task.get("chapter_id") != chapter_id:
+                raise ValueError(f"Task {task_id} is not linked to chapter {chapter_id}")
+
             cursor.execute("SELECT final_path, status FROM ai_novel_chapter WHERE id = %s FOR UPDATE", (chapter_id,))
             chapter = cursor.fetchone()
             if chapter is None:

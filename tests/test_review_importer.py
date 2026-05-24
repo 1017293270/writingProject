@@ -66,3 +66,13 @@ def test_import_review_issues_requires_object_root(fake_repository, tmp_path):
 
     with pytest.raises(ValueError, match="root must be an object"):
         import_review_issues(fake_repository, task_id=9, review_path=review_file)
+
+
+def test_import_review_issues_requires_issues_array(fake_repository, tmp_path):
+    review_file = tmp_path / "review.json"
+    review_file.write_text(json.dumps({}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must contain an 'issues' array"):
+        import_review_issues(fake_repository, task_id=9, review_path=review_file)
+
+    assert fake_repository.created_review_issues == []

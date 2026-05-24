@@ -1,6 +1,8 @@
 from writing_project.models import Chapter, Project, Task
 from writing_project.repositories import NovelRepository, row_to_chapter, row_to_project, row_to_task
 
+_DEFAULT_TASK_ROW = object()
+
 
 def test_row_to_project_maps_database_fields():
     project = row_to_project(
@@ -89,8 +91,9 @@ def test_row_to_task_maps_paths_and_priority():
 
 
 class RecordingCursor:
-    def __init__(self, chapter_row=None, fail_on_task_update=False):
+    def __init__(self, chapter_row=None, task_row=_DEFAULT_TASK_ROW, fail_on_task_update=False):
         self.chapter_row = chapter_row or {"final_path": None, "status": "planned"}
+        self.task_row = {"chapter_id": 2} if task_row is _DEFAULT_TASK_ROW else task_row
         self.fail_on_task_update = fail_on_task_update
         self.statements = []
         self.closed = False
@@ -101,6 +104,9 @@ class RecordingCursor:
             raise RuntimeError("task update failed")
 
     def fetchone(self):
+        last_sql = self.statements[-1][0]
+        if "FROM ai_novel_task" in last_sql:
+            return self.task_row
         return self.chapter_row
 
     def close(self):
@@ -129,22 +135,54 @@ def test_complete_task_output_updates_chapter_and_task_in_one_commit():
 
     NovelRepository(connection).complete_task_output(9, 2, "out.md", 1200)
 
-    assert len(cursor.statements) == 3
-    assert cursor.statements[1][0].startswith("UPDATE ai_novel_chapter")
-    assert cursor.statements[2][0].startswith("UPDATE ai_novel_task")
+    assert len(cursor.statements) == 4
+    assert cursor.statements[2][0].startswith("UPDATE ai_novel_chapter")
+    assert cursor.statements[3][0].startswith("UPDATE ai_novel_task")
     assert connection.committed is True
     assert connection.rolled_back is False
     assert cursor.closed is True
 
 
 def test_complete_task_output_refuses_final_chapter_and_rolls_back():
-    cursor = RecordingCursor({"final_path": "final.md", "status": "final"})
+    cursor = RecordingCursor(chapter_row={"final_path": "final.md", "status": "final"})
     connection = RecordingConnection(cursor)
 
     try:
         NovelRepository(connection).complete_task_output(9, 2, "out.md", 1200)
     except ValueError as exc:
         assert "already has final content" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+    assert len(cursor.statements) == 2
+    assert connection.committed is False
+    assert connection.rolled_back is True
+
+
+def test_complete_task_output_rolls_back_when_task_is_missing():
+    cursor = RecordingCursor(task_row=None)
+    connection = RecordingConnection(cursor)
+
+    try:
+        NovelRepository(connection).complete_task_output(9, 2, "out.md", 1200)
+    except ValueError as exc:
+        assert "Task 9 not found" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+    assert len(cursor.statements) == 1
+    assert connection.committed is False
+    assert connection.rolled_back is True
+
+
+def test_complete_task_output_rolls_back_when_task_chapter_mismatches():
+    cursor = RecordingCursor(task_row={"chapter_id": 99})
+    connection = RecordingConnection(cursor)
+
+    try:
+        NovelRepository(connection).complete_task_output(9, 2, "out.md", 1200)
+    except ValueError as exc:
+        assert "not linked to chapter 2" in str(exc)
     else:
         raise AssertionError("Expected ValueError")
 

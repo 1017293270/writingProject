@@ -28,7 +28,9 @@ def import_review_issues(repository: ReviewRepository, task_id: int, review_path
     if not isinstance(payload, dict):
         raise ValueError("Review JSON root must be an object")
 
-    issues = payload.get("issues", [])
+    if "issues" not in payload:
+        raise ValueError("Review JSON must contain an 'issues' array")
+    issues = payload["issues"]
     if not isinstance(issues, list):
         raise ValueError("Review JSON must contain an 'issues' array")
 
