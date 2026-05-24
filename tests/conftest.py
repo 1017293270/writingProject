@@ -114,6 +114,30 @@ class FakeRepository:
     def mark_task_completed(self, task_id: int) -> None:
         self.completed_task_id = task_id
 
+    def create_review_issue(
+        self,
+        project_id: int,
+        chapter_id: int | None,
+        task_id: int | None,
+        issue_type: str,
+        severity: int,
+        title: str,
+        detail: str,
+        suggestion: str,
+    ) -> None:
+        self.created_review_issues.append(
+            {
+                "project_id": project_id,
+                "chapter_id": chapter_id,
+                "task_id": task_id,
+                "issue_type": issue_type,
+                "severity": severity,
+                "title": title,
+                "detail": detail,
+                "suggestion": suggestion,
+            }
+        )
+
 
 @pytest.fixture
 def fake_repository() -> FakeRepository:
